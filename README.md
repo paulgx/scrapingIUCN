@@ -4,10 +4,14 @@ Creación de un dataset de especies animales del sitio web registrados en la org
 
 El código está desarrollado en R. Existen 4 archivos:
 
-> scrapingIUCN.Rmd: Es un archivo de R Markdown con las secciones de código necesarias para generar el dataset. Incluye una explicación detallada de cada sección del código.
+# Contenido
 
-> scrapingIUCN.html: Es el reporte generado del archivo scrapingIUCN.Rmd en formato html. 
+**scrapingIUCN.Rmd**: Es un archivo de R Markdown con las secciones de código necesarias para generar el dataset. Incluye una explicación detallada de cada sección del código.
 
-> RespuestasPractica1.pdf: Son las respuestas a las preguntas de la práctica M2.851_20181 de la asignatura de Tipología
+**scrapingIUCN.html**: Es el reporte generado del archivo scrapingIUCN.Rmd en formato html. 
 
-> endangeredSpecies.csv: El dataset generado
+**RespuestasPractica1.pdf**: Son las respuestas a las preguntas de la práctica M2.851_20181 de la asignatura de Tipología
+
+**endangeredSpecies.csv**: El dataset generado
+
+Autor: PauL Zambrano
