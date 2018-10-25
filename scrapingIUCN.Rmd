@@ -1,0 +1,204 @@
+---
+title: "scraping IUCN"
+author: "Paul Zambrano"
+date: "October 24, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Web Scraping: Especies registradas en IUCN 
+
+Las peticiones HTTP se realizan con la librería httr
+```{r}
+library("httr")
+```
+
+El scraping del sitio web empieza en la URL https://www.iucnredlist.org/search/list. El sitio web nos muestra una búsqueda avanzada de especies. Extraeremos las especies con la categoría "Critically Endangered" del reino Animal que serán 2867 resultados.
+
+Los resultados de la búsqueda se actualizan dinámicamente mediante paginación. Usando herramientas de Google Chrome se puede observar las llamadas que se realizan para actualizar el grid con la lista de especies. 
+
+Encontramos que existe un servidor con ElasticSearch que recibe una consulta con un párametro en formato JSON. La respuesta de este servidor también tiene el formato JSON. Tanto los parámetros de la URL como el contenido de la petición HTTP POST serán enviados en los siguientes scripts con un paginado de 30 simulando el mismo comportamiento del sitio web. 
+
+La función searchIUCN simula una petición POST con todos los parámetros de la búsqueda. Entre los headers es importante el tipo de contenido que será JSON.   
+```{r}
+searchIUCN <- function(url, body, queryParams, userAgent, referer ){
+  request <- POST(url, body = body, 
+                  query = queryParams,
+                  add_headers( Referer=referer, 
+                               `Accept-Encoding`="gzip, deflate, br",
+                               `Accept-Language`="en-US,en;q=0.5",
+                               `Content-Type`="application/json",
+                               `User-Agent`=userAgent)
+  )
+  
+  if(request$status_code == 200) {
+    return( content(request)  )
+  }
+  
+  sprintf("There was an error in the request to the website %s. Status code:%s", url, request$status_code)
+  str(queryParams)
+  
+  NULL
+}
+```
+
+
+Luego de tener los datos de la lista, nos interesa también detalles de cada especie que se encuentran accediendo a las páginas de cada especie. La construcción HTML de las páginas de cada especie también son dinámicas, tienen plantillas similares y el contenido es actualizado por el mismo servidor ElasticSearch. La función siguiente se encarga de consultar al servidor el detalle. Para esto es necesario saber el identificador del registro. 
+```{r}
+searchDetailIUCN <- function(url, userAgent, referer ){
+  
+  
+  request <- GET(url, add_headers( Referer=referer, 
+                                  `Accept-Encoding`="gzip, deflate, br",
+                                  `Accept-Language`="en-US,en;q=0.5",
+                                  `User-Agent`=userAgent)
+  )
+  
+  if(request$status_code == 200) {
+    return( content(request)  )
+  }
+  
+  sprintf("There was an error in the request to the website %s. Status code:%s", url, request$status_code)
+  
+  NULL
+} 
+```
+
+
+Las siguientes funciones de ayuda sirven para acceder a la información de nuestro dataset desde las respuestas JSON del servidor. 
+```{r}
+descriptionListFun <- function(x){ x$description$en }
+collapseListAsString <- function(list){
+  paste( lapply(list, descriptionListFun), sep = "", collapse = ";")
+}
+
+operateHit <- function(hit, detail) {
+  
+  biogeographicalRealms <- collapseListAsString(hit$`_source`$biogeographicalRealms)
+  systems <- collapseListAsString(hit$`_source`$systems)
+  scopes <- collapseListAsString(hit$`_source`$scopes)
+  
+  threats <- collapseListAsString(detail$threats)
+  habitats <- collapseListAsString(detail$habitats)
+  population <- ifelse(is.null(detail$estimatedPopulation), NA, as.integer(gsub(",", "", detail$estimatedPopulation))) 
+  
+  data.frame(name=ifelse(is.null(hit$`_source`$commonName), NA, hit$`_source`$commonName), 
+             kingdom=ifelse(is.null(hit$`_source`$kingdomName), NA, hit$`_source`$kingdomName),
+             class=ifelse(is.null(hit$`_source`$className), NA, hit$`_source`$className),
+             phylum=ifelse(is.null(hit$`_source`$phylumName), NA, hit$`_source`$phylumName),
+             scientificName=ifelse(is.null(hit$`_source`$scientificName), NA, hit$`_source`$scientificName),
+             family=ifelse(is.null(hit$`_source`$familyName), NA, hit$`_source`$familyName),
+             species=ifelse(is.null(hit$`_source`$speciesName), NA, hit$`_source`$speciesName),
+             order=ifelse(is.null(hit$`_source`$orderName), NA, hit$`_source`$orderName),
+             genus=ifelse(is.null(hit$`_source`$genusName), NA, hit$`_source`$genusName),
+             yearPublished=ifelse(is.null(hit$`_source`$yearPublished), NA, hit$`_source`$yearPublished),
+             populationTrend=ifelse(is.null(hit$`_source`$populationTrend$description$en), NA, hit$`_source`$populationTrend$description$en),
+             biogeographicalRealms=biogeographicalRealms,
+             systems=systems,
+             scopes=scopes, 
+             lastAssessed=detail$date,
+             estimatedPopulation=population,
+             threats = threats,
+             habitats=habitats,
+             stringsAsFactors = FALSE
+  )
+}
+```
+
+Aquí una función que ejecuta la paginación tal cual como si fuese el sitio web verdadero. Por consideración a la organización IUCN se espera 0.2 de segundo entre llamadas a los detalles. 
+```{r}
+operatePaginatedHits <- function(response){
+  partialResult <- NULL
+  for (hit in response$hits$hits) {
+    id <- hit$`_source`$id
+    speciesId <- hit$`_source`$speciesId
+    refererDetail <- sprintf(iucnDetailWebsite, speciesId, id)
+    queryDetailUrl <- sprintf(iucnDetailBase, id)
+    Sys.sleep(0.2)
+    detail <- searchDetailIUCN(queryDetailUrl, firefoxUserAgent, refererDetail)
+    
+    partialResult <- rbind(partialResult, operateHit(hit, detail))
+  }
+  
+  partialResult
+}
+```
+
+
+La URL base para realizar las búsquedas paginadas que retornan JSON
+```{r}
+iucnBase <- "https://www.iucnredlist.org/dosearch/assessments/_search" 
+```
+
+
+La consulta para obtener solo especies del reino animal que se encuentran en estado crítico de extinción (CR-Critically Endangered).
+```{r}
+elasticQuery <- '{"query":{"bool":{"must":[],"filter":{"bool":{"filter":[{"terms":{"scopes.code":["1"]}},{"terms":{"redListCategory.scaleCode":["cr"]}},{"terms":{"taxonLevel":["Species"]}}],"should":[{"terms":{"kingdomId":[100003]}}]}},"should":[{"term":{"hasImage":{"value":true,"boost":6}}}]}},"sort":[{"_score":{"order":"desc"}}]}'
+```
+
+
+Nuestro user-agent simulará ser una máquina WIndows 10 con navegador Firefox v63
+```{r}
+firefoxUserAgent <- "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:63.0) Gecko/20100101 Firefox/63.0"
+```
+
+La URL para realizar búsquedas  
+```{r}
+iucnWebsite <- "https://www.iucnredlist.org/search/list"
+```
+
+
+El formato de la URL para consultar los detalles de la especie 
+```{r}
+iucnDetailBase <- "https://www.iucnredlist.org/api/v4/species/%s"
+```
+
+
+El formato de la URL de cada especie
+```{r}
+iucnDetailWebsite <- "https://www.iucnredlist.org/species/%s/%s"
+```
+
+
+Variables de Inicio
+```{r}
+paginationSize <- 30
+query <- list(size=paginationSize, `_source_exclude`="ranges, legends", from=0)
+result <- NULL
+```
+
+
+##Inicio del Proceso
+Se hace una llamada solo para que se inicialice la cookie que genera este sitio
+```{r}
+initialRequest <- GET(iucnWebsite, add_headers(`User-Agent`=firefoxUserAgent) )
+```
+
+
+Hacemos la primera consulta que servirá para validar que está respondiendo el servidor y además para obtener el conteo total de registros para la paginación
+```{r execution}
+response <- searchIUCN(iucnBase, elasticQuery, query, firefoxUserAgent, iucnWebsite)
+if( ! is.null(response) ){
+  #total de registros
+  total <- response$hits$total  
+  #cálculo de páginas
+  pags <- ceiling (total / paginationSize) - 1
+  
+  result <- operatePaginatedHits(response)
+  
+  for (i in 1:pags) {
+    query$from <- i * paginationSize  
+    response <- searchIUCN(iucnBase, elasticQuery, query, firefoxUserAgent, iucnWebsite)
+    result <-rbind(result,  operatePaginatedHits(response))
+  }
+}
+```
+
+
+Los resultados se guardan en un archivo CSV
+```{r writingCSV}
+write.csv(result, file="D:/endangeredSpecies.csv", row.names = FALSE)
+```
