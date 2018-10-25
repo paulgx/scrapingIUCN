@@ -4,7 +4,7 @@ Creación de un dataset de especies animales del sitio web registrados en la org
 
 https://www.iucnredlist.org 
 
-El código está desarrollado en R. Existen 4 archivos:
+El código está desarrollado en R. 
 
 # Contenido
 
