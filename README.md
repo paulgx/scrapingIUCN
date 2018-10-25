@@ -8,7 +8,7 @@ El código está desarrollado en R.
 
 # Contenido
 
-**scrapingIUCN.Rmd**: Es un archivo de R Markdown con las secciones de código necesarias para generar el dataset. Incluye una explicación detallada de cada sección del código.
+**scrapingIUCN.Rmd**: Es un archivo de R Markdown con las secciones de código necesarias para generar el dataset. Incluye una explicación detallada de cada sección del código. El código está pensando para no perturbar al sitio web IUCN por lo que se hace consultas con intervalo de 2 décimas de segundo. Generar el dataset podría tardar alrededor de 20 minutos.  
 
 **scrapingIUCN.html**: Es el reporte generado del archivo scrapingIUCN.Rmd en formato html. 
 
